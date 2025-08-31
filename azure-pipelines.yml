@@ -15,8 +15,8 @@ variables:
   resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps' # Este es un nombre que debe cambiar al que crearon.
   virtualNetworkName: 'RedVirtual-Grupo1-S3-DevOps'
   subnetName: 'SubRed-Grupo1-S2DevOps'
-  addressPrefix: '10.0.0.0/16'
-  subnetPrefix: '10.0.1.0/24'
+  addressPrefix: '10.0.0.0/24'
+  subnetPrefix: '10.0.0.0/26'
   securityGroupName: 'GrupoSeguridadRed-NSG-Grupo1-S3-DevOps'
   publicIpName: 'miVM-Grupo1-S3-DevOps-ip'
   vmName: 'miVM-Grupo1-S3-DevOps'
