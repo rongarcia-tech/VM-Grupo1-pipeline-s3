@@ -7,7 +7,7 @@ pool:
 variables:
   azureSubscription: 'devazure-admin-grupo1-vm-s3-devops' # Este es un nombre que debe cambiar al que crearon.
   location: 'eastus2'
-  resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps' # Este es un nombre que debe cambiar al que crearon.
+  resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps' # Este es un nombre que debe cambiar al que creado ahora
   virtualNetworkName: 'RedVirtual-Grupo1-S3-DevOps'
   subnetName: 'SubRed-Grupo1-S2DevOps'
   addressPrefix: '10.0.0.0/24'
