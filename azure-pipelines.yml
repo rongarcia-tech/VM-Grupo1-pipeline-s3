@@ -20,7 +20,7 @@ variables:
   securityGroupName: 'GrupoSeguridadRed-NSG-Grupo1-S3-DevOps'
   publicIpName: 'miVM-Grupo1-S3-DevOps-ip'
   vmName: 'miVM-Grupo1-S3-DevOps'
-  vmSize: 'Standard'  # SKU disponible en eastus2
+  vmSize: 'Standard_B1s'  # SKU disponible en eastus2
   adminUsername: 'user-s3-devops'
   adminPassword: 'Pass-s3-devops'  # Contraseña en texto plano (ajustar según necesidad)
 
