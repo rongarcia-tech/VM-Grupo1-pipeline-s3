@@ -93,4 +93,76 @@ steps:
           --resource-group $(resourceGroupName) \
           --nsg-name $(securityGroupName) \
           --name AllowICMP \
-          --protocol icmp
+          --protocol icmp \
+          --direction inbound \
+          --priority 1002 \
+          --source-address-prefix '*' \
+          --source-port-range '*' \
+          --destination-address-prefix '*' \
+          --destination-port-range '*' \
+          --access allow
+
+        echo "Reglas de NSG configuradas."
+
+        # Crear una dirección IP pública
+        echo "Creando IP pública..."
+        az network public-ip create \
+          --resource-group $(resourceGroupName) \
+          --name $(publicIpName) \
+          --sku Standard \
+          --allocation-method Static \
+          --zone 1
+        echo "IP pública creada."
+        az network public-ip wait --resource-group $(resourceGroupName) --name $(publicIpName) --created
+
+        #######
+        # 1) Ver qué NIC está usando la IP (si estuviera en uso)
+        pipcfg=$(az network public-ip show \
+          -g $(resourceGroupName) \
+          -n $(publicIpName) \
+          --query 'ipConfiguration.id' -o tsv || true)
+
+        if [ -n "$pipcfg" ]; then
+          # pipcfg = .../networkInterfaces/<NIC>/ipConfigurations/<IPCONF>
+          nic=$(basename "$(dirname "$pipcfg")")
+          ipconf=$(basename "$pipcfg")
+          echo "Desvinculando IP de la NIC $nic/$ipconf ..."
+          az network nic ip-config update \
+            -g $(resourceGroupName) \
+            --nic-name "$nic" \
+            -n "$ipconf" \
+            --remove publicIpAddress
+        fi
+        #######
+
+        # Crear la máquina virtual con la IP pública asignada, usando los parámetros de imagen especificados
+        echo "Creando máquina virtual..."
+        az vm create \
+          --resource-group $(resourceGroupName) \
+          --name $(vmName) \
+          --image $(imagePublisher):$(imageOffer):$(imageSku):$(imageVersion) \
+          --size $(vmSize) \
+          --admin-username $(adminUsername) \
+          --admin-password $(adminPassword) \
+          --vnet-name $(virtualNetworkName) \
+          --subnet $(subnetName) \
+          --nsg $(securityGroupName) \
+          --public-ip-address $(publicIpName)
+        echo "Máquina virtual creada."
+        az vm wait --resource-group $(resourceGroupName) --name $(vmName) --created
+
+        # Instalar Apache y configurar la página de prueba
+        echo "Instalando Apache y configurando la página de prueba..."
+        az vm run-command invoke \
+          --resource-group $(resourceGroupName) \
+          --name $(vmName) \
+          --command-id RunShellScript \
+          --scripts "sudo apt update && sudo apt install -y apache2"
+
+        az vm run-command invoke \
+          --resource-group $(resourceGroupName) \
+          --name $(vmName) \
+          --command-id RunShellScript \
+          --scripts "echo 'hola curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
+
+        echo "Apache instalado y página de bienvenida configurada."
