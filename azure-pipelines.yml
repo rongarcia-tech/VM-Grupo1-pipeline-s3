@@ -104,26 +104,59 @@ steps:
 
         echo "Reglas de NSG configuradas."
 
-        # Verificar si la IP pública ya existe y eliminarla si es necesario
-        echo "Verificando si la IP pública ya existe..."
-        if az network public-ip show -g $(resourceGroupName) -n $(publicIpName) &>/dev/null; then
-          echo "La IP pública ya existe, eliminándola para recrearla..."
-          az network public-ip delete --resource-group $(resourceGroupName) --name $(publicIpName)
-          echo "IP pública anterior eliminada."
+        # Verificar si la VM ya existe y eliminarla si es necesario
+        echo "Verificando si la VM ya existe..."
+        if az vm show --resource-group $(resourceGroupName) --name $(vmName) &>/dev/null; then
+          echo "La VM ya existe, eliminándola para recrearla..."
+          az vm delete --resource-group $(resourceGroupName) --name $(vmName) --yes --no-wait
+          
+          # Esperar un poco para que se complete la eliminación
+          echo "Esperando a que se elimine la VM..."
+          sleep 30
+          
+          # Eliminar la NIC si existe (por si acaso quedó)
+          echo "Limpiando recursos de red..."
+          for nic in $(az network nic list --resource-group $(resourceGroupName) --query "[?contains(name, '$(vmName)')].name" -o tsv); do
+            echo "Eliminando NIC: $nic"
+            az network nic delete --resource-group $(resourceGroupName) --name "$nic" --no-wait
+          done
+          
+          # Eliminar discos si existen
+          for disk in $(az disk list --resource-group $(resourceGroupName) --query "[?contains(name, '$(vmName)')].name" -o tsv); do
+            echo "Eliminando disco: $disk"
+            az disk delete --resource-group $(resourceGroupName) --name "$disk" --yes --no-wait
+          done
+          
+          sleep 10
         fi
 
-        # Crear una dirección IP pública nueva
-        echo "Creando IP pública..."
+        # Verificar si la IP pública ya existe
+        echo "Verificando si la IP pública ya existe..."
+        if az network public-ip show --resource-group $(resourceGroupName) --name $(publicIpName) &>/dev/null; then
+          echo "La IP pública ya existe, intentando eliminarla..."
+          
+          # Intentar eliminar la IP pública
+          if ! az network public-ip delete --resource-group $(resourceGroupName) --name $(publicIpName) 2>/dev/null; then
+            echo "No se pudo eliminar la IP, probablemente está en uso. Se reutilizará la existente."
+          else
+            echo "IP pública anterior eliminada."
+          fi
+        fi
+
+        # Crear o verificar la dirección IP pública
+        echo "Creando/verificando IP pública..."
         az network public-ip create \
           --resource-group $(resourceGroupName) \
           --name $(publicIpName) \
           --sku Standard \
           --allocation-method Static \
-          --zone 1
-        echo "IP pública creada."
+          --zone 1 \
+          --only-show-errors || echo "Usando IP pública existente"
+        
+        echo "IP pública lista."
         az network public-ip wait --resource-group $(resourceGroupName) --name $(publicIpName) --created
 
-        # Crear la máquina virtual con la IP pública asignada, usando los parámetros de imagen especificados
+        # Crear la máquina virtual con la IP pública asignada
         echo "Creando máquina virtual..."
         az vm create \
           --resource-group $(resourceGroupName) \
