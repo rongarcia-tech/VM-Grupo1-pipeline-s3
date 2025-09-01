@@ -20,7 +20,7 @@ variables:
   securityGroupName: 'GrupoSeguridadRed-NSG-Grupo1-S3-DevOps'
   publicIpName: 'miVM-Grupo1-S3-DevOps-ip'
   vmName: 'miVM-Grupo1-S3-DevOps'
-  vmSize: 'Standard_DS1_v2'  # SKU disponible en eastus2
+  vmSize: 'Standard_B1s'  # SKU disponible en eastus2
   adminUsername: 'user-s3-devops'
   adminPassword: 'Pass-s3-devops'  # Contraseña en texto plano (ajustar según necesidad)
 
@@ -31,53 +31,66 @@ variables:
   imageVersion: 'latest'  # Versión específica de la imagen
 
 steps:
-- task: AzureCLI@2
-  inputs:
-    azureSubscription: $(azureSubscription)
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      set -e  # Termina el script si cualquier comando falla
+  - task: AzureCLI@2
+    inputs:
+      azureSubscription: $(azureSubscription)
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        set -e  # Termina el script si cualquier comando falla
 
-      # Crear un grupo de recursos
-      echo "Creando grupo de recursos..."
-      az group create --name $(resourceGroupName) --location "$(location)"
-      echo "Grupo de recursos creado."
+        # Crear un grupo de recursos
+        echo "Creando grupo de recursos..."
+        az group create --name $(resourceGroupName) --location "$(location)"
+        echo "Grupo de recursos creado."
 
-      # Crear una red virtual con un segmento de red
-      echo "Creando red virtual..."
-      az network vnet create --resource-group $(resourceGroupName) --name $(virtualNetworkName) --address-prefix $(addressPrefix) --subnet-name $(subnetName) --subnet-prefix $(subnetPrefix)
-      echo "Red virtual creada."
-      az network vnet wait --resource-group $(resourceGroupName) --name $(virtualNetworkName) --created
+        # Crear una red virtual con un segmento de red
+        echo "Creando red virtual..."
+        az network vnet create \
+          --resource-group $(resourceGroupName) \
+          --name $(virtualNetworkName) \
+          --address-prefix $(addressPrefix) \
+          --subnet-name $(subnetName) \
+          --subnet-prefix $(subnetPrefix)
+        echo "Red virtual creada."
+        az network vnet wait --resource-group $(resourceGroupName) --name $(virtualNetworkName) --created
 
-      # Crear un grupo de seguridad de red
-      echo "Creando grupo de seguridad de red..."
-      az network nsg create --resource-group $(resourceGroupName) --name $(securityGroupName)
-      echo "Grupo de seguridad de red creado."
-      az network nsg wait --resource-group $(resourceGroupName) --name $(securityGroupName) --created
+        # Crear un grupo de seguridad de red
+        echo "Creando grupo de seguridad de red..."
+        az network nsg create --resource-group $(resourceGroupName) --name $(securityGroupName)
+        echo "Grupo de seguridad de red creado."
+        az network nsg wait --resource-group $(resourceGroupName) --name $(securityGroupName) --created
 
-      # Permitir acceso a los puertos 22 y 80
-      echo "Configurando reglas de NSG..."
-      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) --name AllowSSH --protocol tcp --direction inbound --priority 1000 --source-address-prefix '*' --source-port-range '*' --destination-address-prefix '*' --destination-port-range 22 --access allow
-      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) --name AllowHTTP --protocol tcp --direction inbound --priority 1001 --source-address-prefix '*' --source-port-range '*' --destination-address-prefix '*' --destination-port-range 80 --access allow
-      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) --name AllowICMP --protocol icmp --direction inbound --priority 1002 --source-address-prefix '*' --source-port-range '*' --destination-address-prefix '*' --destination-port-range '*' --access allow
+        # Permitir acceso a los puertos 22 y 80
+        echo "Configurando reglas de NSG..."
+        az network nsg rule create \
+          --resource-group $(resourceGroupName) \
+          --nsg-name $(securityGroupName) \
+          --name AllowSSH \
+          --protocol tcp \
+          --direction inbound \
+          --priority 1000 \
+          --source-address-prefix '*' \
+          --source-port-range '*' \
+          --destination-address-prefix '*' \
+          --destination-port-range 22 \
+          --access allow
 
-      echo "Reglas de NSG configuradas."
+        az network nsg rule create \
+          --resource-group $(resourceGroupName) \
+          --nsg-name $(securityGroupName) \
+          --name AllowHTTP \
+          --protocol tcp \
+          --direction inbound \
+          --priority 1001 \
+          --source-address-prefix '*' \
+          --source-port-range '*' \
+          --destination-address-prefix '*' \
+          --destination-port-range 80 \
+          --access allow
 
-      # Crear una dirección IP pública
-      echo "Creando IP pública..."
-      az network public-ip create --resource-group $(resourceGroupName) --name $(publicIpName) --sku Standard --allocation-method Static --zone 1
-      echo "IP pública creada."
-      az network public-ip wait --resource-group $(resourceGroupName) --name $(publicIpName) --created
-
-      # Crear la máquina virtual con la IP pública asignada, usando los parámetros de imagen especificados
-      echo "Creando máquina virtual..."
-      az vm create --resource-group $(resourceGroupName) --name $(vmName) --image $(imagePublisher):$(imageOffer):$(imageSku):$(imageVersion) --size $(vmSize) --admin-username $(adminUsername) --admin-password $(adminPassword) --vnet-name $(virtualNetworkName) --subnet $(subnetName) --nsg $(securityGroupName) --public-ip-address $(publicIpName)
-      echo "Máquina virtual creada."
-      az vm wait --resource-group $(resourceGroupName) --name $(vmName) --created
-
-      # Instalar Apache y configurar la página de prueba
-      echo "Instalando Apache y configurando la página de prueba..."
-      az vm run-command invoke --resource-group $(resourceGroupName) --name $(vmName) --command-id RunShellScript --scripts "sudo apt update && sudo apt install -y apache2"
-      az vm run-command invoke --resource-group $(resourceGroupName) --name $(vmName) --command-id RunShellScript --scripts "echo 'hola curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
-      echo "Apache instalado y página de bienvenida configurada."
+        az network nsg rule create \
+          --resource-group $(resourceGroupName) \
+          --nsg-name $(securityGroupName) \
+          --name AllowICMP \
+          --protocol icmp
