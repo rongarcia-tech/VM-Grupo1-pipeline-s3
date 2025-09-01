@@ -74,5 +74,5 @@ steps:
       # Instalar Apache y configurar la página de prueba
       echo "Instalando Apache y configurando la página de prueba..."
       az vm run-command invoke --resource-group $(resourceGroupName) --name $(vmName) --command-id RunShellScript --scripts "sudo apt update && sudo apt install -y apache2"
-      az vm run-command invoke --resource-group $(resourceGroupName) --name $(vmName) --command-id RunShellScript --scripts "echo 'hola curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
+      az vm run-command invoke --resource-group $(resourceGroupName) --name $(vmName) --command-id RunShellScript --scripts "echo 'hola somos el GRUPO1 RAMO: DEVOPS del curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
       echo "Apache instalado y página de bienvenida configurada."
