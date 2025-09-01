@@ -1,8 +1,3 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
 - main
 
@@ -10,9 +5,9 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  azureSubscription: 'devazure-admin-grupo1-vm-s3-devops' # Este es un nombre que debe cambiar al que crearon.
+  azureSubscription: 'devazure-admin-grupo1-vm-s3-devops'
   location: 'eastus2'
-  resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps' # Este es un nombre que debe cambiar al que crearon.
+  resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps'
   virtualNetworkName: 'RedVirtual-Grupo1-S3-DevOps'
   subnetName: 'SubRed-Grupo1-S2DevOps'
   addressPrefix: '10.0.0.0/24'
@@ -20,15 +15,14 @@ variables:
   securityGroupName: 'GrupoSeguridadRed-NSG-Grupo1-S3-DevOps'
   publicIpName: 'miVM-Grupo1-S3-DevOps-ip'
   vmName: 'miVM-Grupo1-S3-DevOps'
-  vmSize: 'Standard_B1s'  # SKU disponible en eastus2
+  vmSize: 'Standard_B1s'
   adminUsername: 'user-s3-devops'
-  adminPassword: 'Pass-s3-devops'  # Contraseña en texto plano (ajustar según necesidad)
+  adminPassword: 'Pass-s3-devops'
 
-  # Variables de la imagen
   imagePublisher: 'Canonical'
   imageOffer: '0001-com-ubuntu-server-jammy'
   imageSku: '22_04-lts-gen2'
-  imageVersion: 'latest'  # Versión específica de la imagen
+  imageVersion: 'latest'
 
 steps:
   - task: AzureCLI@2
@@ -37,14 +31,12 @@ steps:
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        set -e  # Termina el script si cualquier comando falla
+        set -e
 
-        # Crear un grupo de recursos
         echo "Creando grupo de recursos..."
         az group create --name $(resourceGroupName) --location "$(location)"
         echo "Grupo de recursos creado."
 
-        # Crear una red virtual con un segmento de red
         echo "Creando red virtual..."
         az network vnet create \
           --resource-group $(resourceGroupName) \
@@ -55,56 +47,38 @@ steps:
         echo "Red virtual creada."
         az network vnet wait --resource-group $(resourceGroupName) --name $(virtualNetworkName) --created
 
-        # Crear un grupo de seguridad de red
-        echo "Creando grupo de seguridad de red..."
+        echo "Creando NSG..."
         az network nsg create --resource-group $(resourceGroupName) --name $(securityGroupName)
-        echo "Grupo de seguridad de red creado."
         az network nsg wait --resource-group $(resourceGroupName) --name $(securityGroupName) --created
 
-        # Permitir acceso a los puertos 22 y 80
-        echo "Configurando reglas de NSG..."
+        echo "Reglas de NSG..."
         az network nsg rule create \
           --resource-group $(resourceGroupName) \
           --nsg-name $(securityGroupName) \
           --name AllowSSH \
-          --protocol tcp \
-          --direction inbound \
-          --priority 1000 \
-          --source-address-prefix '*' \
-          --source-port-range '*' \
-          --destination-address-prefix '*' \
-          --destination-port-range 22 \
+          --protocol tcp --direction inbound --priority 1000 \
+          --source-address-prefix '*' --source-port-range '*' \
+          --destination-address-prefix '*' --destination-port-range 22 \
           --access allow
 
         az network nsg rule create \
           --resource-group $(resourceGroupName) \
           --nsg-name $(securityGroupName) \
           --name AllowHTTP \
-          --protocol tcp \
-          --direction inbound \
-          --priority 1001 \
-          --source-address-prefix '*' \
-          --source-port-range '*' \
-          --destination-address-prefix '*' \
-          --destination-port-range 80 \
+          --protocol tcp --direction inbound --priority 1001 \
+          --source-address-prefix '*' --source-port-range '*' \
+          --destination-address-prefix '*' --destination-port-range 80 \
           --access allow
 
         az network nsg rule create \
           --resource-group $(resourceGroupName) \
           --nsg-name $(securityGroupName) \
           --name AllowICMP \
-          --protocol icmp \
-          --direction inbound \
-          --priority 1002 \
-          --source-address-prefix '*' \
-          --source-port-range '*' \
-          --destination-address-prefix '*' \
-          --destination-port-range '*' \
+          --protocol icmp --direction inbound --priority 1002 \
+          --source-address-prefix '*' --source-port-range '*' \
+          --destination-address-prefix '*' --destination-port-range '*' \
           --access allow
 
-        echo "Reglas de NSG configuradas."
-
-        # Crear una dirección IP pública
         echo "Creando IP pública..."
         az network public-ip create \
           --resource-group $(resourceGroupName) \
@@ -112,30 +86,23 @@ steps:
           --sku Standard \
           --allocation-method Static \
           --zone 1
-        echo "IP pública creada."
         az network public-ip wait --resource-group $(resourceGroupName) --name $(publicIpName) --created
 
-        #######
-        # 1) Ver qué NIC está usando la IP (si estuviera en uso)
+        ####### Desvincular IP si está asociada a otra NIC (fix robusto con --ids)
         pipcfg=$(az network public-ip show \
-          -g $(resourceGroupName) \
-          -n $(publicIpName) \
+          -g $(resourceGroupName) -n $(publicIpName) \
           --query 'ipConfiguration.id' -o tsv || true)
 
-        if [ -n "$pipcfg" ]; then
-          # pipcfg = .../networkInterfaces/<NIC>/ipConfigurations/<IPCONF>
-          nic=$(basename "$(dirname "$pipcfg")")
-          ipconf=$(basename "$pipcfg")
-          echo "Desvinculando IP de la NIC $nic/$ipconf ..."
+        if [ -n "$pipcfg" ] && [ "$pipcfg" != "null" ]; then
+          echo "Desvinculando IP de: $pipcfg"
           az network nic ip-config update \
-            -g $(resourceGroupName) \
-            --nic-name "$nic" \
-            -n "$ipconf" \
+            --ids "$pipcfg" \
             --remove publicIpAddress
+        else
+          echo "La IP no está asociada a ninguna NIC."
         fi
         #######
 
-        # Crear la máquina virtual con la IP pública asignada, usando los parámetros de imagen especificados
         echo "Creando máquina virtual..."
         az vm create \
           --resource-group $(resourceGroupName) \
@@ -148,11 +115,9 @@ steps:
           --subnet $(subnetName) \
           --nsg $(securityGroupName) \
           --public-ip-address $(publicIpName)
-        echo "Máquina virtual creada."
         az vm wait --resource-group $(resourceGroupName) --name $(vmName) --created
 
-        # Instalar Apache y configurar la página de prueba
-        echo "Instalando Apache y configurando la página de prueba..."
+        echo "Instalando Apache..."
         az vm run-command invoke \
           --resource-group $(resourceGroupName) \
           --name $(vmName) \
@@ -165,4 +130,4 @@ steps:
           --command-id RunShellScript \
           --scripts "echo 'hola curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
 
-        echo "Apache instalado y página de bienvenida configurada."
+        echo "Listo."
