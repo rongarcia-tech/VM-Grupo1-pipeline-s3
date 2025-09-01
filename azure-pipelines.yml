@@ -108,7 +108,7 @@ steps:
         echo "Verificando si la IP pública ya existe..."
         if az network public-ip show -g $(resourceGroupName) -n $(publicIpName) &>/dev/null; then
           echo "La IP pública ya existe, eliminándola para recrearla..."
-          az network public-ip delete -g $(resourceGroupName) -n $(publicIpName) --yes
+          az network public-ip delete --resource-group $(resourceGroupName) --name $(publicIpName)
           echo "IP pública anterior eliminada."
         fi
 
