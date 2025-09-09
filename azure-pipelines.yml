@@ -7,18 +7,23 @@ pool:
 variables:
   azureSubscription: 'new-sc-azuredevops-test1'
   location: 'eastus2'
+
   resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps'
   virtualNetworkName: 'RedVirtual-Grupo1-S3-DevOps'
   subnetName: 'SubRed-Grupo1-S2DevOps'
   addressPrefix: '10.0.0.0/24'
   subnetPrefix: '10.0.0.0/26'
+
   securityGroupName: 'GrupoSeguridadRed-NSG-Grupo1-S3-DevOps'
   publicIpName: 'miVM-Grupo1-S3-DevOps-ip'
   vmName: 'miVM-Grupo1-S3-DevOps'
   vmSize: 'Standard_B1s'
+
   adminUsername: 'user-s3-devops'
-  # ⚠️ En la UI define una variable secreta llamada adminPassword y NO la pongas en texto plano
-  # adminPassword: '$(adminPassword)'
+  # Usa una variable secreta definida en la UI de Pipelines:
+  # adminPassword = (marcada como Secret)
+  # Aquí solo la referenciamos:
+  adminPassword: '$(adminPassword)'
 
   # Imagen Ubuntu 22.04 LTS Gen2 (Canonical)
   imagePublisher: 'Canonical'
@@ -36,22 +41,22 @@ steps:
     inlineScript: |
       set -e
 
-      echo "== 0) Crear archivo cloud-init (customdata.yml) =="
-      cat > customdata.yml <<'CLOUD'
-#cloud-config
-write_files:
-  - path: /etc/ssh/sshd_config.d/60-force-password.conf
-    permissions: '0644'
-    owner: root:root
-    content: |
-      PasswordAuthentication yes
-      UsePAM yes
-runcmd:
-  - [ bash, -lc, "mkdir -p /run/sshd && chmod 0755 /run/sshd" ]
-  - [ bash, -lc, "sed -i 's/^[#[:space:]]*PasswordAuthentication[[:space:]]\\+no/PasswordAuthentication yes/' /etc/ssh/sshd_config || true" ]
-  - [ bash, -lc, "/usr/sbin/sshd -t -f /etc/ssh/sshd_config || (echo 'sshd config invalida' && exit 1)" ]
-  - [ bash, -lc, "systemctl restart ssh || systemctl restart sshd" ]
-CLOUD
+      echo "== 0) Script post-creación para habilitar PasswordAuthentication =="
+      cat > fix-ssh.sh <<'EOS'
+      set -e
+      sudo mkdir -p /etc/ssh/sshd_config.d
+      # Escribimos config mínima que habilita password
+      printf "%s\n" "PasswordAuthentication yes" "UsePAM yes" | sudo tee /etc/ssh/sshd_config.d/60-force-password.conf >/dev/null
+      # Directorio runtime requerido por sshd
+      sudo mkdir -p /run/sshd && sudo chmod 0755 /run/sshd
+      # Si el archivo principal niega password, lo forzamos a yes
+      sudo sed -i 's/^[#[:space:]]*PasswordAuthentication[[:space:]]\+no/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
+      # Validar sintaxis y reiniciar servicio
+      sudo /usr/sbin/sshd -t -f /etc/ssh/sshd_config
+      sudo systemctl restart ssh || sudo systemctl restart sshd
+      # Mostrar parámetros efectivos (debug)
+      sudo /usr/sbin/sshd -T 2>/dev/null | grep -Ei 'passwordauthentication|usepam' || true
+      EOS
 
       echo "== 1) Grupo de recursos =="
       az group create --name $(resourceGroupName) --location "$(location)"
@@ -64,7 +69,7 @@ CLOUD
         --subnet-name $(subnetName) \
         --subnet-prefix $(subnetPrefix)
 
-      echo "== 3) NSG y reglas entrantes (22/80/ICMP) =="
+      echo "== 3) NSG y reglas (22/80/ICMP) =="
       az network nsg create --resource-group $(resourceGroupName) --name $(securityGroupName)
       az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) \
         --name AllowSSH --protocol Tcp --direction Inbound --priority 1000 \
@@ -79,14 +84,14 @@ CLOUD
         --source-address-prefix '*' --source-port-range '*' \
         --destination-address-prefix '*' --destination-port-range '*' --access Allow
 
-      echo "== 4) IP pública (Standard, Estática) =="
+      echo "== 4) IP pública (Standard/Static) =="
       az network public-ip create \
         --resource-group $(resourceGroupName) \
         --name $(publicIpName) \
         --sku Standard \
         --allocation-method Static
 
-      echo "== 5) Crear VM (forzando autenticación por contraseña + cloud-init) =="
+      echo "== 5) Crear VM (forzando autenticación por contraseña) =="
       az vm create \
         --resource-group $(resourceGroupName) \
         --name $(vmName) \
@@ -98,15 +103,17 @@ CLOUD
         --vnet-name $(virtualNetworkName) \
         --subnet $(subnetName) \
         --nsg $(securityGroupName) \
-        --public-ip-address $(publicIpName) \
-        --custom-data customdata.yml
+        --public-ip-address $(publicIpName)
 
-      echo "== 6) Esperar creación =="
-      az vm wait --resource-group $(resourceGroupName) --name $(vmName) --created
+      echo "== 6) Aplicar fix de SSH dentro de la VM =="
+      az vm run-command invoke -g $(resourceGroupName) -n $(vmName) \
+        --command-id RunShellScript --scripts @fix-ssh.sh
 
-      echo "== 7) (Opcional) Instalar Apache y página =="
-      az vm run-command invoke -g $(resourceGroupName) -n $(vmName) --command-id RunShellScript --scripts "sudo apt update -y && sudo apt install -y apache2"
-      az vm run-command invoke -g $(resourceGroupName) -n $(vmName) --command-id RunShellScript --scripts "echo 'hola somos el GRUPO1 RAMO semana 4: DEVOPS del curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
+      echo "== 7) (Opcional) Instalar Apache y página simple =="
+      az vm run-command invoke -g $(resourceGroupName) -n $(vmName) \
+        --command-id RunShellScript --scripts "sudo apt-get update -y && sudo apt-get install -y apache2"
+      az vm run-command invoke -g $(resourceGroupName) -n $(vmName) \
+        --command-id RunShellScript --scripts "echo 'hola somos el GRUPO1 RAMO semana 4: DEVOPS del curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
 
-      echo "== 8) IP pública para conectar por SSH =="
+      echo "== 8) IP pública para conectarte por SSH =="
       az vm show -d -g $(resourceGroupName) -n $(vmName) --query publicIps -o tsv
