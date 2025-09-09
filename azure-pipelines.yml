@@ -5,24 +5,20 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  # ⚠️ Usa un Service Connection válido
   azureSubscription: 'new-sc-azuredevops-test1'
-
-  # Región y nombres (ajusta si hace falta)
   location: 'eastus2'
   resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps'
   virtualNetworkName: 'RedVirtual-Grupo1-S3-DevOps'
-  subnetName: 'SubRed-Grupo1-S2DevOps'   # <- ojo con este nombre; déjalo igual que tu red
+  subnetName: 'SubRed-Grupo1-S2DevOps'
   addressPrefix: '10.0.0.0/24'
   subnetPrefix: '10.0.0.0/26'
   securityGroupName: 'GrupoSeguridadRed-NSG-Grupo1-S3-DevOps'
   publicIpName: 'miVM-Grupo1-S3-DevOps-ip'
   vmName: 'miVM-Grupo1-S3-DevOps'
   vmSize: 'Standard_B1s'
-
-  # Credenciales VM
   adminUsername: 'user-s3-devops'
-  adminPassword: 'TuNuevaClaveSegura#2025'   
+  # ⚠️ En la UI define una variable secreta llamada adminPassword y NO la pongas en texto plano
+  # adminPassword: '$(adminPassword)'
 
   # Imagen Ubuntu 22.04 LTS Gen2 (Canonical)
   imagePublisher: 'Canonical'
@@ -40,8 +36,8 @@ steps:
     inlineScript: |
       set -e
 
-      echo "== 0) cloud-init para forzar PasswordAuthentication =="
-      cat > customdata.yml <<'EOF'
+      echo "== 0) Crear archivo cloud-init (customdata.yml) =="
+      cat > customdata.yml <<'CLOUD'
 #cloud-config
 write_files:
   - path: /etc/ssh/sshd_config.d/60-force-password.conf
@@ -53,9 +49,9 @@ write_files:
 runcmd:
   - [ bash, -lc, "mkdir -p /run/sshd && chmod 0755 /run/sshd" ]
   - [ bash, -lc, "sed -i 's/^[#[:space:]]*PasswordAuthentication[[:space:]]\\+no/PasswordAuthentication yes/' /etc/ssh/sshd_config || true" ]
-  - [ bash, -lc, "sshd -t -f /etc/ssh/sshd_config || (echo 'sshd config inválida' && exit 1)" ]
+  - [ bash, -lc, "/usr/sbin/sshd -t -f /etc/ssh/sshd_config || (echo 'sshd config invalida' && exit 1)" ]
   - [ bash, -lc, "systemctl restart ssh || systemctl restart sshd" ]
-EOF
+CLOUD
 
       echo "== 1) Grupo de recursos =="
       az group create --name $(resourceGroupName) --location "$(location)"
@@ -68,25 +64,22 @@ EOF
         --subnet-name $(subnetName) \
         --subnet-prefix $(subnetPrefix)
 
-      echo "== 3) NSG y reglas entrantes (22/80) =="
+      echo "== 3) NSG y reglas entrantes (22/80/ICMP) =="
       az network nsg create --resource-group $(resourceGroupName) --name $(securityGroupName)
-      # Regla SSH
       az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) \
         --name AllowSSH --protocol Tcp --direction Inbound --priority 1000 \
         --source-address-prefix '*' --source-port-range '*' \
         --destination-address-prefix '*' --destination-port-range 22 --access Allow
-      # Regla HTTP
       az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) \
         --name AllowHTTP --protocol Tcp --direction Inbound --priority 1001 \
         --source-address-prefix '*' --source-port-range '*' \
         --destination-address-prefix '*' --destination-port-range 80 --access Allow
-      # (Opcional) ICMP; algunos CLI requieren 'Icmp' con mayúscula inicial
       az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) \
         --name AllowICMP --protocol Icmp --direction Inbound --priority 1002 \
         --source-address-prefix '*' --source-port-range '*' \
         --destination-address-prefix '*' --destination-port-range '*' --access Allow
 
-      echo "== 4) IP Pública (Standard, Estática) =="
+      echo "== 4) IP pública (Standard, Estática) =="
       az network public-ip create \
         --resource-group $(resourceGroupName) \
         --name $(publicIpName) \
@@ -108,12 +101,12 @@ EOF
         --public-ip-address $(publicIpName) \
         --custom-data customdata.yml
 
-      echo "== 6) Esperar a que la VM quede operativa =="
+      echo "== 6) Esperar creación =="
       az vm wait --resource-group $(resourceGroupName) --name $(vmName) --created
 
-      echo "== 7) (Opcional) Instalar Apache y página simple =="
+      echo "== 7) (Opcional) Instalar Apache y página =="
       az vm run-command invoke -g $(resourceGroupName) -n $(vmName) --command-id RunShellScript --scripts "sudo apt update -y && sudo apt install -y apache2"
       az vm run-command invoke -g $(resourceGroupName) -n $(vmName) --command-id RunShellScript --scripts "echo 'hola somos el GRUPO1 RAMO semana 4: DEVOPS del curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
 
-      echo "== 8) Mostrar IP pública para conexión SSH =="
+      echo "== 8) IP pública para conectar por SSH =="
       az vm show -d -g $(resourceGroupName) -n $(vmName) --query publicIps -o tsv
