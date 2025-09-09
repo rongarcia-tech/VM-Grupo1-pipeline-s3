@@ -5,74 +5,115 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  azureSubscription: 'new-sc-azuredevops-test1' # Este es un nombre que debe cambiar al que crearon.
+  # ⚠️ Usa un Service Connection válido
+  azureSubscription: 'new-sc-azuredevops-test1'
+
+  # Región y nombres (ajusta si hace falta)
   location: 'eastus2'
-  resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps' # Este es un nombre que debe cambiar al que creado ahora
+  resourceGroupName: 'GrupoRecursos-Grupo1-S3-DevOps'
   virtualNetworkName: 'RedVirtual-Grupo1-S3-DevOps'
-  subnetName: 'SubRed-Grupo1-S2DevOps'
+  subnetName: 'SubRed-Grupo1-S2DevOps'   # <- ojo con este nombre; déjalo igual que tu red
   addressPrefix: '10.0.0.0/24'
   subnetPrefix: '10.0.0.0/26'
   securityGroupName: 'GrupoSeguridadRed-NSG-Grupo1-S3-DevOps'
   publicIpName: 'miVM-Grupo1-S3-DevOps-ip'
   vmName: 'miVM-Grupo1-S3-DevOps'
-  vmSize: 'Standard_B1s'  # SKU disponible en eastus2
-  adminUsername: 'user-s3-devops'
-  adminPassword: 'W8!cobalt_Sunrise924'  # Contraseña en texto plano (ajustar según necesidad)
+  vmSize: 'Standard_B1s'
 
-  # Variables de la imagen
+  # Credenciales VM
+  adminUsername: 'user-s3-devops'
+  adminPassword: 'TuNuevaClaveSegura#2025'   
+
+  # Imagen Ubuntu 22.04 LTS Gen2 (Canonical)
   imagePublisher: 'Canonical'
   imageOffer: '0001-com-ubuntu-server-jammy'
   imageSku: '22_04-lts-gen2'
-  imageVersion: 'latest'  # Versión específica de la imagen
+  imageVersion: 'latest'
 
 steps:
 - task: AzureCLI@2
+  displayName: 'Provisionar infraestructura + VM (SSH por contraseña habilitado)'
   inputs:
     azureSubscription: $(azureSubscription)
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
+    scriptType: bash
+    scriptLocation: inlineScript
     inlineScript: |
-      set -e  # Termina el script si cualquier comando falla
+      set -e
 
-      # Crear un grupo de recursos
-      echo "Creando grupo de recursos..."
+      echo "== 0) cloud-init para forzar PasswordAuthentication =="
+      cat > customdata.yml <<'EOF'
+#cloud-config
+write_files:
+  - path: /etc/ssh/sshd_config.d/60-force-password.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      PasswordAuthentication yes
+      UsePAM yes
+runcmd:
+  - [ bash, -lc, "mkdir -p /run/sshd && chmod 0755 /run/sshd" ]
+  - [ bash, -lc, "sed -i 's/^[#[:space:]]*PasswordAuthentication[[:space:]]\\+no/PasswordAuthentication yes/' /etc/ssh/sshd_config || true" ]
+  - [ bash, -lc, "sshd -t -f /etc/ssh/sshd_config || (echo 'sshd config inválida' && exit 1)" ]
+  - [ bash, -lc, "systemctl restart ssh || systemctl restart sshd" ]
+EOF
+
+      echo "== 1) Grupo de recursos =="
       az group create --name $(resourceGroupName) --location "$(location)"
-      echo "Grupo de recursos creado."
 
-      # Crear una red virtual con un segmento de red
-      echo "Creando red virtual..."
-      az network vnet create --resource-group $(resourceGroupName) --name $(virtualNetworkName) --address-prefix $(addressPrefix) --subnet-name $(subnetName) --subnet-prefix $(subnetPrefix)
-      echo "Red virtual creada."
-      az network vnet wait --resource-group $(resourceGroupName) --name $(virtualNetworkName) --created
+      echo "== 2) Red virtual + subred =="
+      az network vnet create \
+        --resource-group $(resourceGroupName) \
+        --name $(virtualNetworkName) \
+        --address-prefix $(addressPrefix) \
+        --subnet-name $(subnetName) \
+        --subnet-prefix $(subnetPrefix)
 
-      # Crear un grupo de seguridad de red
-      echo "Creando grupo de seguridad de red..."
+      echo "== 3) NSG y reglas entrantes (22/80) =="
       az network nsg create --resource-group $(resourceGroupName) --name $(securityGroupName)
-      echo "Grupo de seguridad de red creado."
-      az network nsg wait --resource-group $(resourceGroupName) --name $(securityGroupName) --created
+      # Regla SSH
+      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) \
+        --name AllowSSH --protocol Tcp --direction Inbound --priority 1000 \
+        --source-address-prefix '*' --source-port-range '*' \
+        --destination-address-prefix '*' --destination-port-range 22 --access Allow
+      # Regla HTTP
+      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) \
+        --name AllowHTTP --protocol Tcp --direction Inbound --priority 1001 \
+        --source-address-prefix '*' --source-port-range '*' \
+        --destination-address-prefix '*' --destination-port-range 80 --access Allow
+      # (Opcional) ICMP; algunos CLI requieren 'Icmp' con mayúscula inicial
+      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) \
+        --name AllowICMP --protocol Icmp --direction Inbound --priority 1002 \
+        --source-address-prefix '*' --source-port-range '*' \
+        --destination-address-prefix '*' --destination-port-range '*' --access Allow
 
-      # Permitir acceso a los puertos 22 y 80
-      echo "Configurando reglas de NSG..."
-      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) --name AllowSSH --protocol tcp --direction inbound --priority 1000 --source-address-prefix '*' --source-port-range '*' --destination-address-prefix '*' --destination-port-range 22 --access allow
-      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) --name AllowHTTP --protocol tcp --direction inbound --priority 1001 --source-address-prefix '*' --source-port-range '*' --destination-address-prefix '*' --destination-port-range 80 --access allow
-      az network nsg rule create --resource-group $(resourceGroupName) --nsg-name $(securityGroupName) --name AllowICMP --protocol icmp --direction inbound --priority 1002 --source-address-prefix '*' --source-port-range '*' --destination-address-prefix '*' --destination-port-range '*' --access allow
+      echo "== 4) IP Pública (Standard, Estática) =="
+      az network public-ip create \
+        --resource-group $(resourceGroupName) \
+        --name $(publicIpName) \
+        --sku Standard \
+        --allocation-method Static
 
-      echo "Reglas de NSG configuradas."
+      echo "== 5) Crear VM (forzando autenticación por contraseña + cloud-init) =="
+      az vm create \
+        --resource-group $(resourceGroupName) \
+        --name $(vmName) \
+        --image $(imagePublisher):$(imageOffer):$(imageSku):$(imageVersion) \
+        --size $(vmSize) \
+        --admin-username $(adminUsername) \
+        --admin-password "$(adminPassword)" \
+        --authentication-type password \
+        --vnet-name $(virtualNetworkName) \
+        --subnet $(subnetName) \
+        --nsg $(securityGroupName) \
+        --public-ip-address $(publicIpName) \
+        --custom-data customdata.yml
 
-      # Crear una dirección IP pública
-      echo "Creando IP pública..."
-      az network public-ip create --resource-group $(resourceGroupName) --name $(publicIpName) --sku Standard --allocation-method Static
-      echo "IP pública creada."
-      az network public-ip wait --resource-group $(resourceGroupName) --name $(publicIpName) --created
-
-      # Crear la máquina virtual con la IP pública asignada, usando los parámetros de imagen especificados
-      echo "Creando máquina virtual..."
-      az vm create --resource-group $(resourceGroupName) --name $(vmName) --image $(imagePublisher):$(imageOffer):$(imageSku):$(imageVersion) --size $(vmSize) --admin-username $(adminUsername) --admin-password $(adminPassword) --vnet-name $(virtualNetworkName) --subnet $(subnetName) --nsg $(securityGroupName) --public-ip-address $(publicIpName) --authentication-type password
-      echo "Máquina virtual creada."
+      echo "== 6) Esperar a que la VM quede operativa =="
       az vm wait --resource-group $(resourceGroupName) --name $(vmName) --created
 
-      # Instalar Apache y configurar la página de prueba
-      echo "Instalando Apache y configurando la página de prueba..."
-      az vm run-command invoke --resource-group $(resourceGroupName) --name $(vmName) --command-id RunShellScript --scripts "sudo apt update && sudo apt install -y apache2"
-      az vm run-command invoke --resource-group $(resourceGroupName) --name $(vmName) --command-id RunShellScript --scripts "echo 'hola somos el GRUPO1 RAMO semana 4: DEVOPS del curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
-      echo "Apache instalado y página de bienvenida configurada."
+      echo "== 7) (Opcional) Instalar Apache y página simple =="
+      az vm run-command invoke -g $(resourceGroupName) -n $(vmName) --command-id RunShellScript --scripts "sudo apt update -y && sudo apt install -y apache2"
+      az vm run-command invoke -g $(resourceGroupName) -n $(vmName) --command-id RunShellScript --scripts "echo 'hola somos el GRUPO1 RAMO semana 4: DEVOPS del curso devops hemos automatizado el despliegue de maquina virtual desde azure devops' | sudo tee /var/www/html/index.html"
+
+      echo "== 8) Mostrar IP pública para conexión SSH =="
+      az vm show -d -g $(resourceGroupName) -n $(vmName) --query publicIps -o tsv
