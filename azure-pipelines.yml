@@ -23,7 +23,7 @@ variables:
   # Usa una variable secreta definida en la UI de Pipelines:
   # adminPassword = (marcada como Secret)
   # Aquí solo la referenciamos:
-  adminPassword: 'C0bAlt!Sunrise_924'
+  adminPassword: 'Lt9h-Quasar#4912'
 
   # Imagen Ubuntu 22.04 LTS Gen2 (Canonical)
   imagePublisher: 'Canonical'
