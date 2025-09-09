@@ -98,7 +98,7 @@ steps:
         --image $(imagePublisher):$(imageOffer):$(imageSku):$(imageVersion) \
         --size $(vmSize) \
         --admin-username $(adminUsername) \
-        --admin-password "$(adminPassword)" \
+        --admin-password "ADMIN_PASSWORD" \
         --authentication-type password \
         --vnet-name $(virtualNetworkName) \
         --subnet $(subnetName) \
@@ -117,3 +117,5 @@ steps:
 
       echo "== 8) IP pública para conectarte por SSH =="
       az vm show -d -g $(resourceGroupName) -n $(vmName) --query publicIps -o tsv
+  env:
+    ADMIN_PASSWORD: $(adminPassword)
