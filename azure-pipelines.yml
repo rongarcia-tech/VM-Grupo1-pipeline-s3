@@ -17,7 +17,7 @@ variables:
   vmName: 'miVM-Grupo1-S3-DevOps'
   vmSize: 'Standard_B1s'  # SKU disponible en eastus2
   adminUsername: 'user-s3-devops'
-  adminPassword: 'Pass-s3-devops'  # Contraseña en texto plano (ajustar según necesidad)
+  adminPassword: 'W8!cobalt_Sunrise924'  # Contraseña en texto plano (ajustar según necesidad)
 
   # Variables de la imagen
   imagePublisher: 'Canonical'
@@ -67,7 +67,7 @@ steps:
 
       # Crear la máquina virtual con la IP pública asignada, usando los parámetros de imagen especificados
       echo "Creando máquina virtual..."
-      az vm create --resource-group $(resourceGroupName) --name $(vmName) --image $(imagePublisher):$(imageOffer):$(imageSku):$(imageVersion) --size $(vmSize) --admin-username $(adminUsername) --admin-password $(adminPassword) --vnet-name $(virtualNetworkName) --subnet $(subnetName) --nsg $(securityGroupName) --public-ip-address $(publicIpName)
+      az vm create --resource-group $(resourceGroupName) --name $(vmName) --image $(imagePublisher):$(imageOffer):$(imageSku):$(imageVersion) --size $(vmSize) --admin-username $(adminUsername) --admin-password $(adminPassword) --vnet-name $(virtualNetworkName) --subnet $(subnetName) --nsg $(securityGroupName) --public-ip-address $(publicIpName) --authentication-type password
       echo "Máquina virtual creada."
       az vm wait --resource-group $(resourceGroupName) --name $(vmName) --created
 
